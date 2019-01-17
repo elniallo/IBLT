@@ -24,6 +24,11 @@ struct InvertibleBloomLookupTable {
     area_count: u8,
 }
 
+struct Output {
+    key_sum: u32,
+    value_sum: u32
+}
+
 impl InvertibleBloomLookupTable {
     pub fn new(size: usize, area_count: u8) -> InvertibleBloomLookupTable {
         InvertibleBloomLookupTable {
@@ -62,6 +67,31 @@ impl InvertibleBloomLookupTable {
             }
         }
         return None;
+    }
+
+    fn delete(&mut self, x: u32, y: u32) {
+        for i in 0 .. self.area_count {
+            let hash_value = self.hash(i, x);
+            self.table[hash_value].count -= 1;
+            self.table[hash_value].key_sum -= x;
+            self.table[hash_value].value_sum -= y;
+        }
+    }
+
+    fn list_entries(&mut self) -> Vec<Output> {
+        let mut ret_val = Vec::<Output>::new();
+        for i in 0 .. self.table.len() {
+            if self.table[i].count == 1 {
+                let key_sum = self.table[i].key_sum;
+                let value_sum = self.table[i].value_sum;
+                ret_val.push(Output{
+                    key_sum ,
+                    value_sum,
+                });
+                self.delete(key_sum, value_sum);
+            }
+        }
+        return ret_val;
     }
 }
 
