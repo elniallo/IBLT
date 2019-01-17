@@ -1,4 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 
@@ -21,9 +20,10 @@ impl Default for InvertibleBloomLookupTableNode {
 
 type Node = InvertibleBloomLookupTableNode;
 
-struct InvertibleBloomLookupTable {
+struct InvertibleBloomLookupTable<T> {
     table: Vec<Node>,
     area_count: u8,
+    hasher: T
 }
 
 struct Output {
@@ -31,25 +31,26 @@ struct Output {
     value_sum: u32
 }
 
-impl InvertibleBloomLookupTable {
-    pub fn new(size: usize, area_count: u8) -> Option<InvertibleBloomLookupTable> {
+impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
+    pub fn new(size: usize, area_count: u8) -> Option<InvertibleBloomLookupTable<T>> {
         if size == 0 || area_count <= 1 || size % (area_count as usize) != 0 {
             return None;
         }
         Some(InvertibleBloomLookupTable {
             table: vec![Node::default(); size],
             area_count,
+            hasher: T::default()
         })
     }
 
-    pub fn hash(&self, i: u8, value: u32) -> Result<usize, &str> {
+    pub fn hash(&mut self, i: u8, value: u32) -> Result<usize, &str> {
         if i >= self.area_count {
             return Err("Hash Failed");
         }
         let area_size = self.table.len() / self.area_count as usize;
-        let mut hasher_in = DefaultHasher::new();
-        value.hash(&mut hasher_in);
-        let hash_value = hasher_in.finish();
+        value.hash(&mut self.hasher);
+        let hash_value = self.hasher.finish();
+        self.hasher = T::default();
         return Ok((hash_value % (area_size as u64)) as usize + i as usize * area_size);
     }
 
@@ -63,7 +64,7 @@ impl InvertibleBloomLookupTable {
         return Ok(());
     }
 
-    pub fn get(&self, x: u32) -> Result<u32, &str> {
+    pub fn get(&mut self, x: u32) -> Result<u32, &str> {
         for i in 0..self.area_count {
             let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
             if self.table[hash_value].count == 0 {
@@ -116,36 +117,37 @@ impl InvertibleBloomLookupTable {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
     use super::*;
 
     #[test]
     fn constructor_with_zero_size_fails() {
-        assert!(InvertibleBloomLookupTable::new(0,1).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(0,1).is_none());
     }
 
     #[test]
     fn constructor_with_zero_or_one_area_count_fails() {
-        assert!(InvertibleBloomLookupTable::new(1,0).is_none());
-        assert!(InvertibleBloomLookupTable::new(1,1).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1,0).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1,1).is_none());
     }
 
     #[test]
     fn constructor_with_size_not_divisible_with_area_count_fails() {
-        assert!(InvertibleBloomLookupTable::new(3,2).is_none());
-        assert!(InvertibleBloomLookupTable::new(5,3).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(3,2).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(5,3).is_none());
     }
 
     #[test]
     fn constructor() {
         for i in 2 .. 4 {
-            assert!(InvertibleBloomLookupTable::new(i * i, i as u8).is_some());
+            assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(i * i, i as u8).is_some());
         }
     }
 
     #[test]
     fn too_high_hash_index() {
         let area_count = 16;
-        let table = InvertibleBloomLookupTable::new(256, area_count).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, area_count).unwrap();
         assert!(table.hash(16, 17).is_err());
         assert!(table.hash(17, 17).is_err());
     }
@@ -155,7 +157,7 @@ mod tests {
         for i in 0 .. 7 {
             let area_count = 2u8.pow(i + 1) as u8;
             let area_size = 256 / area_count as u32;
-            let table = InvertibleBloomLookupTable::new(256, area_count).unwrap();
+            let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, area_count).unwrap();
             let value = i * i;
             let mut hasher = DefaultHasher::new();
             value.hash(&mut hasher);
@@ -167,26 +169,26 @@ mod tests {
 
     #[test]
     fn try_to_get_a_value_from_empty_table() {
-        let table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.get(3).is_err());
     }
 
     #[test]
     fn insert_and_get_the_value() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(3, 5).is_ok());
         assert_eq!(table.get(3).ok().unwrap(), 5);
     }
 
     #[test]
     fn try_to_remove_a_value_from_an_empty_table() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.delete(3, 5).is_err());
     }
 
     #[test]
     fn insert_remove_and_get_the_value() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(3, 5).is_ok());
         assert!(table.delete(3, 5).is_ok());
         assert!(table.get(3).is_err());
@@ -194,7 +196,7 @@ mod tests {
 
     #[test]
     fn insert_one_items_and_get_list_entries() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(4, 6).is_ok());
         let results = table.list_entries().ok().unwrap();
         assert_eq!(results.len(), 1);
@@ -207,7 +209,7 @@ mod tests {
 
     #[test]
     fn insert_two_items_and_get_list_entries() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(4, 6).is_ok());
         assert!(table.insert(5, 7).is_ok());
         let results = table.list_entries().ok().unwrap();
@@ -223,7 +225,7 @@ mod tests {
 
     #[test]
     fn insert_three_items_and_get_list_entries() {
-        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(3, 5).is_ok());
         assert!(table.insert(4, 6).is_ok());
         assert!(table.insert(5, 7).is_ok());
