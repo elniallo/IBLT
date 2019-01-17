@@ -104,10 +104,10 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
         return Err(IBLTError::new("Error: Not Found"));
     }
 
-    pub fn delete(&mut self, x: u32, y: u32) -> Result<(), &str> {
+    pub fn delete(&mut self, x: u32, y: u32) -> Result<(), IBLTError> {
         let mut matched = false;
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
+            let hash_value = self.hash(i, x)?;
             if self.table[hash_value].count == 0 {
                 continue;
             }
@@ -117,19 +117,19 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
             matched = true;
         }
         if !matched {
-            return Err("Not Found");
+            return Err(IBLTError::new("Error: Not Found"));
         }
         Ok(())
     }
 
-    pub fn list_entries(&mut self) -> Result<Vec<Output>, &str> {
+    pub fn list_entries(&mut self) -> Result<Vec<Output>, IBLTError> {
         let mut ret_val = Vec::<Output>::new();
         for i in 0..self.table.len() {
             if self.table[i].count == 1 {
                 let key_sum = self.table[i].key_sum;
                 let value_sum = self.table[i].value_sum;
                 ret_val.push(Output { key_sum, value_sum });
-                self.delete(key_sum, value_sum).or(Err("Delete Failed"))?;
+                self.delete(key_sum, value_sum)?;
             }
         }
         return Ok(ret_val);
