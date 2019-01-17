@@ -19,7 +19,7 @@ impl Default for InvertibleBloomLookupTableNode {
 }
 
 type Node = InvertibleBloomLookupTableNode;
-
+#[derive(Clone)]
 pub struct InvertibleBloomLookupTable<T> {
     table: Vec<Node>,
     area_count: u8,
@@ -31,7 +31,20 @@ pub struct Output {
     value_sum: u32,
 }
 
-impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
+pub struct OutputList {
+    key_pairs: Vec<Output>,
+    complete_list: bool,
+}
+impl OutputList {
+    fn new() -> OutputList {
+        OutputList {
+            key_pairs: Vec::new(),
+            complete_list: true,
+        }
+    }
+}
+
+impl<T: Hasher + Default + Clone> InvertibleBloomLookupTable<T> {
     pub fn new(size: usize, area_count: u8) -> Option<InvertibleBloomLookupTable<T>> {
         if size == 0 || area_count <= 1 || size % (area_count as usize) != 0 {
             return None;
@@ -97,15 +110,18 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
         }
         Ok(())
     }
-
-    pub fn list_entries(&mut self) -> Result<Vec<Output>, IBLTError> {
-        let mut ret_val = Vec::<Output>::new();
-        for i in 0..self.table.len() {
-            if self.table[i].count == 1 {
-                let key_sum = self.table[i].key_sum;
-                let value_sum = self.table[i].value_sum;
-                ret_val.push(Output { key_sum, value_sum });
-                self.delete(key_sum, value_sum)?;
+    /// Returns the list of entries from the Table, the output list contains a boolean indicating a successful run or partial success.
+    pub fn list_entries(&self) -> Result<OutputList, IBLTError> {
+        let mut ret_val = OutputList::new();
+        let mut table = self.clone();
+        for i in 0..table.table.len() {
+            if table.table[i].count == 1 {
+                let key_sum = table.table[i].key_sum;
+                let value_sum = table.table[i].value_sum;
+                ret_val.key_pairs.push(Output { key_sum, value_sum });
+                table.delete(key_sum, value_sum)?;
+            } else if ret_val.complete_list && table.table[i].count > 1 {
+                ret_val.complete_list = false;
             }
         }
         return Ok(ret_val);
@@ -206,8 +222,8 @@ mod tests {
         let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, 8).unwrap();
         assert!(table.insert(4, 6).is_ok());
         let results = table.list_entries().ok().unwrap();
-        assert_eq!(results.len(), 1);
-        for output in results {
+        assert_eq!(results.key_pairs.len(), 1);
+        for output in results.key_pairs {
             if output.key_sum == 4 {
                 assert_eq!(output.value_sum, 6);
             }
@@ -220,8 +236,8 @@ mod tests {
         assert!(table.insert(4, 6).is_ok());
         assert!(table.insert(5, 7).is_ok());
         let results = table.list_entries().ok().unwrap();
-        assert_eq!(results.len(), 2);
-        for output in results {
+        assert_eq!(results.key_pairs.len(), 2);
+        for output in results.key_pairs {
             if output.key_sum == 4 {
                 assert_eq!(output.value_sum, 6);
             } else if output.key_sum == 5 {
@@ -237,8 +253,8 @@ mod tests {
         assert!(table.insert(4, 6).is_ok());
         assert!(table.insert(5, 7).is_ok());
         let results = table.list_entries().ok().unwrap();
-        assert_eq!(results.len(), 3);
-        for output in results {
+        assert_eq!(results.key_pairs.len(), 3);
+        for output in results.key_pairs {
             if output.key_sum == 3 {
                 assert_eq!(output.value_sum, 5);
             } else if output.key_sum == 4 {
