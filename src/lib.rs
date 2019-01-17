@@ -1,30 +1,7 @@
-use std::error::Error;
-use std::fmt;
+pub mod iblt_error;
+use crate::iblt_error::IBLTError;
 use std::hash::{Hash, Hasher};
-#[derive(Debug)]
-struct IBLTError {
-    details: String,
-}
 
-impl IBLTError {
-    fn new(msg: &str) -> IBLTError {
-        IBLTError {
-            details: String::from(msg),
-        }
-    }
-}
-
-impl fmt::Display for IBLTError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.details)
-    }
-}
-
-impl Error for IBLTError {
-    fn description(&self) -> &str {
-        &self.details
-    }
-}
 #[derive(Clone)]
 struct InvertibleBloomLookupTableNode {
     count: u32,
