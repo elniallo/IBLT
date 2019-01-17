@@ -1,6 +1,30 @@
+use std::error::Error;
+use std::fmt;
 use std::hash::{Hash, Hasher};
+#[derive(Debug)]
+struct IBLTError {
+    details: String,
+}
 
+impl IBLTError {
+    fn new(msg: &str) -> IBLTError {
+        IBLTError {
+            details: String::from(msg),
+        }
+    }
+}
 
+impl fmt::Display for IBLTError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl Error for IBLTError {
+    fn description(&self) -> &str {
+        &self.details
+    }
+}
 #[derive(Clone)]
 struct InvertibleBloomLookupTableNode {
     count: u32,
@@ -23,12 +47,12 @@ type Node = InvertibleBloomLookupTableNode;
 struct InvertibleBloomLookupTable<T> {
     table: Vec<Node>,
     area_count: u8,
-    hasher: T
+    hasher: T,
 }
 
 struct Output {
     key_sum: u32,
-    value_sum: u32
+    value_sum: u32,
 }
 
 impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
@@ -39,13 +63,13 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
         Some(InvertibleBloomLookupTable {
             table: vec![Node::default(); size],
             area_count,
-            hasher: T::default()
+            hasher: T::default(),
         })
     }
 
-    pub fn hash(&mut self, i: u8, value: u32) -> Result<usize, &str> {
+    pub fn hash(&mut self, i: u8, value: u32) -> Result<usize, IBLTError> {
         if i >= self.area_count {
-            return Err("Hash Failed");
+            return Err(IBLTError::new("Hashing Error: Data words exceed capacity"));
         }
         let area_size = self.table.len() / self.area_count as usize;
         value.hash(&mut self.hasher);
@@ -54,9 +78,9 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
         return Ok((hash_value % (area_size as u64)) as usize + i as usize * area_size);
     }
 
-    pub fn insert(&mut self, x: u32, y: u32) -> Result<(), &str> {
+    pub fn insert(&mut self, x: u32, y: u32) -> Result<(), IBLTError> {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
+            let hash_value = self.hash(i, x)?;
             self.table[hash_value].count += 1;
             self.table[hash_value].key_sum += x;
             self.table[hash_value].value_sum += y;
@@ -64,25 +88,25 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
         return Ok(());
     }
 
-    pub fn get(&mut self, x: u32) -> Result<u32, &str> {
+    pub fn get(&mut self, x: u32) -> Result<u32, IBLTError> {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
+            let hash_value = self.hash(i, x)?;
             if self.table[hash_value].count == 0 {
-                return Err("Not found");
+                return Err(IBLTError::new("Error: Not Found"));
             } else if self.table[hash_value].count == 1 {
                 if self.table[hash_value].key_sum == x {
                     return Ok(self.table[hash_value].value_sum);
                 } else {
-                    return Err("Not found");
+                    return Err(IBLTError::new("Error: Not Found"));
                 }
             }
         }
-        return Err("Not found");
+        return Err(IBLTError::new("Error: Not Found"));
     }
 
-    pub fn delete(&mut self, x: u32, y: u32) -> Result<(), &str>{
+    pub fn delete(&mut self, x: u32, y: u32) -> Result<(), &str> {
         let mut matched = false;
-        for i in 0 .. self.area_count {
+        for i in 0..self.area_count {
             let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
             if self.table[hash_value].count == 0 {
                 continue;
@@ -100,14 +124,11 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
 
     pub fn list_entries(&mut self) -> Result<Vec<Output>, &str> {
         let mut ret_val = Vec::<Output>::new();
-        for i in 0 .. self.table.len() {
+        for i in 0..self.table.len() {
             if self.table[i].count == 1 {
                 let key_sum = self.table[i].key_sum;
                 let value_sum = self.table[i].value_sum;
-                ret_val.push(Output{
-                    key_sum ,
-                    value_sum,
-                });
+                ret_val.push(Output { key_sum, value_sum });
                 self.delete(key_sum, value_sum).or(Err("Delete Failed"))?;
             }
         }
@@ -117,29 +138,29 @@ impl<T: Hasher + Default> InvertibleBloomLookupTable<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::hash_map::DefaultHasher;
     use super::*;
+    use std::collections::hash_map::DefaultHasher;
 
     #[test]
     fn constructor_with_zero_size_fails() {
-        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(0,1).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(0, 1).is_none());
     }
 
     #[test]
     fn constructor_with_zero_or_one_area_count_fails() {
-        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1,0).is_none());
-        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1,1).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1, 0).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(1, 1).is_none());
     }
 
     #[test]
     fn constructor_with_size_not_divisible_with_area_count_fails() {
-        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(3,2).is_none());
-        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(5,3).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(3, 2).is_none());
+        assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(5, 3).is_none());
     }
 
     #[test]
     fn constructor() {
-        for i in 2 .. 4 {
+        for i in 2..4 {
             assert!(InvertibleBloomLookupTable::<DefaultHasher>::new(i * i, i as u8).is_some());
         }
     }
@@ -154,16 +175,26 @@ mod tests {
 
     #[test]
     fn hash_in_area() {
-        for i in 0 .. 7 {
+        for i in 0..7 {
             let area_count = 2u8.pow(i + 1) as u8;
             let area_size = 256 / area_count as u32;
-            let mut table = InvertibleBloomLookupTable::<DefaultHasher>::new(256, area_count).unwrap();
+            let mut table =
+                InvertibleBloomLookupTable::<DefaultHasher>::new(256, area_count).unwrap();
             let value = i * i;
             let mut hasher = DefaultHasher::new();
             value.hash(&mut hasher);
-            assert_eq!(table.hash(i as u8, (i * i) as u32).unwrap(), (hasher.finish() % area_size as u64 + i as u64 * area_size as u64) as usize);
-            assert!(table.hash(i as u8, (i * i) as u32).unwrap() < ((i as usize + 1) * (area_size as usize)));
-            assert!(table.hash(i as u8, (i * i) as u32).unwrap() >= ((i as usize) * (area_size as usize)));
+            assert_eq!(
+                table.hash(i as u8, (i * i) as u32).unwrap(),
+                (hasher.finish() % area_size as u64 + i as u64 * area_size as u64) as usize
+            );
+            assert!(
+                table.hash(i as u8, (i * i) as u32).unwrap()
+                    < ((i as usize + 1) * (area_size as usize))
+            );
+            assert!(
+                table.hash(i as u8, (i * i) as u32).unwrap()
+                    >= ((i as usize) * (area_size as usize))
+            );
         }
     }
 

@@ -1,7 +1,7 @@
 [package]
 name = "invertible_bloom_lookup_table"
 version = "0.1.0"
-authors = ["Alan Park <alanpark.jaewoo@gmail.com>"]
+authors = ["Alan Park <alanpark.jaewoo@gmail.com>, Niall Moore <niall@hycon.io>"]
 edition = "2018"
 
 [dependencies]
