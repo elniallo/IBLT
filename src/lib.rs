@@ -1,25 +1,34 @@
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hasher, Hash};
-
-struct InvertibleBloomLookupTableNode{
+use std::hash::{Hash, Hasher};
+#[derive(Clone)]
+struct InvertibleBloomLookupTableNode {
     count: u32,
     key_sum: u32,
-    value_sum: u32
+    value_sum: u32,
+}
+
+impl Default for InvertibleBloomLookupTableNode {
+    fn default() -> InvertibleBloomLookupTableNode {
+        InvertibleBloomLookupTableNode {
+            count: 0,
+            key_sum: 0,
+            value_sum: 0,
+        }
+    }
 }
 
 type Node = InvertibleBloomLookupTableNode;
 
 struct InvertibleBloomLookupTable {
     table: Vec<Node>,
-    area_count: u8
+    area_count: u8,
 }
 
 impl InvertibleBloomLookupTable {
     pub fn new(size: usize, area_count: u8) -> InvertibleBloomLookupTable {
-        let table = Vec::<Node>::with_capacity(size);
         InvertibleBloomLookupTable {
-            table,
-            area_count
+            table: vec![Node::default(); size],
+            area_count,
         }
     }
 
@@ -33,20 +42,20 @@ impl InvertibleBloomLookupTable {
 
     fn insert(&mut self, x: u32, y: u32) {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i,x);
+            let hash_value = self.hash(i, x);
             self.table[hash_value].count += 1;
             self.table[hash_value].key_sum += x;
             self.table[hash_value].value_sum += y;
         }
     }
 
-    fn get(&self, x:u32) -> Option<u32>{
+    fn get(&self, x: u32) -> Option<u32> {
         for i in 0..self.area_count {
-            if self.table[self.hash(i,x)].count == 0 {
+            if self.table[self.hash(i, x)].count == 0 {
                 return None;
-            } else if self.table[self.hash(i,x)].count == 1 {
-                if self.table[self.hash(i,x)].key_sum == x {
-                    return Some(self.table[self.hash(i,x)].value_sum);
+            } else if self.table[self.hash(i, x)].count == 1 {
+                if self.table[self.hash(i, x)].key_sum == x {
+                    return Some(self.table[self.hash(i, x)].value_sum);
                 } else {
                     return None;
                 }
