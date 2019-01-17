@@ -1,5 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+
+
 #[derive(Clone)]
 struct InvertibleBloomLookupTableNode {
     count: u32,
@@ -30,55 +32,72 @@ struct Output {
 }
 
 impl InvertibleBloomLookupTable {
-    pub fn new(size: usize, area_count: u8) -> InvertibleBloomLookupTable {
-        InvertibleBloomLookupTable {
+    pub fn new(size: usize, area_count: u8) -> Option<InvertibleBloomLookupTable> {
+        if size == 0 || area_count <= 1 || size % (area_count as usize) != 0 {
+            return None;
+        }
+        Some(InvertibleBloomLookupTable {
             table: vec![Node::default(); size],
             area_count,
-        }
+        })
     }
 
-    pub fn hash(&self, i: u8, value: u32) -> usize {
-        let area_size = 2_u32.pow(32) / (self.area_count as u32);
+    pub fn hash(&self, i: u8, value: u32) -> Result<usize, &str> {
+        if i >= self.area_count {
+            return Err("Hash Failed");
+        }
+        let area_size = self.table.len() / self.area_count as usize;
         let mut hasher_in = DefaultHasher::new();
         value.hash(&mut hasher_in);
         let hash_value = hasher_in.finish();
-        return (hash_value % (area_size as u64)) as usize + i as usize * area_size as usize;
+        return Ok((hash_value % (area_size as u64)) as usize + i as usize * area_size);
     }
 
-    fn insert(&mut self, x: u32, y: u32) {
+    pub fn insert(&mut self, x: u32, y: u32) -> Result<(), &str> {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x);
+            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
             self.table[hash_value].count += 1;
             self.table[hash_value].key_sum += x;
             self.table[hash_value].value_sum += y;
         }
+        return Ok(());
     }
 
-    fn get(&self, x: u32) -> Option<u32> {
+    pub fn get(&self, x: u32) -> Result<u32, &str> {
         for i in 0..self.area_count {
-            if self.table[self.hash(i, x)].count == 0 {
-                return None;
-            } else if self.table[self.hash(i, x)].count == 1 {
-                if self.table[self.hash(i, x)].key_sum == x {
-                    return Some(self.table[self.hash(i, x)].value_sum);
+            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
+            if self.table[hash_value].count == 0 {
+                return Err("Not found");
+            } else if self.table[hash_value].count == 1 {
+                if self.table[hash_value].key_sum == x {
+                    return Ok(self.table[hash_value].value_sum);
                 } else {
-                    return None;
+                    return Err("Not found");
                 }
             }
         }
-        return None;
+        return Err("Not found");
     }
 
-    fn delete(&mut self, x: u32, y: u32) {
+    pub fn delete(&mut self, x: u32, y: u32) -> Result<(), &str>{
+        let mut matched = false;
         for i in 0 .. self.area_count {
-            let hash_value = self.hash(i, x);
+            let hash_value = self.hash(i, x).or(Err("Hash Failed"))?;
+            if self.table[hash_value].count == 0 {
+                continue;
+            }
             self.table[hash_value].count -= 1;
             self.table[hash_value].key_sum -= x;
             self.table[hash_value].value_sum -= y;
+            matched = true;
         }
+        if !matched {
+            return Err("Not Found");
+        }
+        Ok(())
     }
 
-    fn list_entries(&mut self) -> Vec<Output> {
+    pub fn list_entries(&mut self) -> Result<Vec<Output>, &str> {
         let mut ret_val = Vec::<Output>::new();
         for i in 0 .. self.table.len() {
             if self.table[i].count == 1 {
@@ -88,17 +107,136 @@ impl InvertibleBloomLookupTable {
                     key_sum ,
                     value_sum,
                 });
-                self.delete(key_sum, value_sum);
+                self.delete(key_sum, value_sum).or(Err("Delete Failed"))?;
             }
         }
-        return ret_val;
+        return Ok(ret_val);
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn constructor_with_zero_size_fails() {
+        assert!(InvertibleBloomLookupTable::new(0,1).is_none());
+    }
+
+    #[test]
+    fn constructor_with_zero_or_one_area_count_fails() {
+        assert!(InvertibleBloomLookupTable::new(1,0).is_none());
+        assert!(InvertibleBloomLookupTable::new(1,1).is_none());
+    }
+
+    #[test]
+    fn constructor_with_size_not_divisible_with_area_count_fails() {
+        assert!(InvertibleBloomLookupTable::new(3,2).is_none());
+        assert!(InvertibleBloomLookupTable::new(5,3).is_none());
+    }
+
+    #[test]
+    fn constructor() {
+        for i in 2 .. 4 {
+            assert!(InvertibleBloomLookupTable::new(i * i, i as u8).is_some());
+        }
+    }
+
+    #[test]
+    fn too_high_hash_index() {
+        let area_count = 16;
+        let table = InvertibleBloomLookupTable::new(256, area_count).unwrap();
+        assert!(table.hash(16, 17).is_err());
+        assert!(table.hash(17, 17).is_err());
+    }
+
+    #[test]
+    fn hash_in_area() {
+        for i in 0 .. 7 {
+            let area_count = 2u8.pow(i + 1) as u8;
+            let area_size = 256 / area_count as u32;
+            let table = InvertibleBloomLookupTable::new(256, area_count).unwrap();
+            let value = i * i;
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            assert_eq!(table.hash(i as u8, (i * i) as u32).unwrap(), (hasher.finish() % area_size as u64 + i as u64 * area_size as u64) as usize);
+            assert!(table.hash(i as u8, (i * i) as u32).unwrap() < ((i as usize + 1) * (area_size as usize)));
+            assert!(table.hash(i as u8, (i * i) as u32).unwrap() >= ((i as usize) * (area_size as usize)));
+        }
+    }
+
+    #[test]
+    fn try_to_get_a_value_from_empty_table() {
+        let table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.get(3).is_err());
+    }
+
+    #[test]
+    fn insert_and_get_the_value() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.insert(3, 5).is_ok());
+        assert_eq!(table.get(3).ok().unwrap(), 5);
+    }
+
+    #[test]
+    fn try_to_remove_a_value_from_an_empty_table() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.delete(3, 5).is_err());
+    }
+
+    #[test]
+    fn insert_remove_and_get_the_value() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.insert(3, 5).is_ok());
+        assert!(table.delete(3, 5).is_ok());
+        assert!(table.get(3).is_err());
+    }
+
+    #[test]
+    fn insert_one_items_and_get_list_entries() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.insert(4, 6).is_ok());
+        let results = table.list_entries().ok().unwrap();
+        assert_eq!(results.len(), 1);
+        for output in results {
+            if output.key_sum == 4 {
+                assert_eq!(output.value_sum, 6);
+            }
+        }
+    }
+
+    #[test]
+    fn insert_two_items_and_get_list_entries() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.insert(4, 6).is_ok());
+        assert!(table.insert(5, 7).is_ok());
+        let results = table.list_entries().ok().unwrap();
+        assert_eq!(results.len(), 2);
+        for output in results {
+            if output.key_sum == 4 {
+                assert_eq!(output.value_sum, 6);
+            } else if output.key_sum == 5 {
+                assert_eq!(output.value_sum, 7);
+            }
+        }
+    }
+
+    #[test]
+    fn insert_three_items_and_get_list_entries() {
+        let mut table = InvertibleBloomLookupTable::new(256, 8).unwrap();
+        assert!(table.insert(3, 5).is_ok());
+        assert!(table.insert(4, 6).is_ok());
+        assert!(table.insert(5, 7).is_ok());
+        let results = table.list_entries().ok().unwrap();
+        assert_eq!(results.len(), 3);
+        for output in results {
+            if output.key_sum == 3 {
+                assert_eq!(output.value_sum, 5);
+            } else if output.key_sum == 4 {
+                assert_eq!(output.value_sum, 6);
+            } else if output.key_sum == 5 {
+                assert_eq!(output.value_sum, 7);
+            }
+        }
     }
 }
