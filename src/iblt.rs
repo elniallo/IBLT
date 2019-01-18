@@ -24,6 +24,7 @@ pub struct InvertibleBloomLookupTable<T> {
     table: Vec<Node>,
     area_count: u8,
     hasher: T,
+    postfix: Vec<u8>,
 }
 
 pub struct Output {
@@ -49,16 +50,21 @@ impl<T: Hasher + Default + Clone> InvertibleBloomLookupTable<T> {
         if size == 0 || area_count <= 1 || size % (area_count as usize) != 0 {
             return None;
         }
+        let mut postfix = Vec::with_capacity(area_count as usize);
+        for i in 0..area_count {
+            postfix.push(0x00 + i)
+        }
         Some(InvertibleBloomLookupTable {
             table: vec![Node::default(); size],
             area_count,
             hasher: T::default(),
+            postfix,
         })
     }
 
     pub fn hash(&mut self, i: u8, value: u32) -> Result<usize, IBLTError> {
         if i >= self.area_count {
-            return Err(IBLTError::new("Hashing Error: Data words exceed capacity"));
+            return Err(IBLTError::new("Index out of bounds"));
         }
         let area_size = self.table.len() / self.area_count as usize;
         value.hash(&mut self.hasher);
@@ -69,7 +75,7 @@ impl<T: Hasher + Default + Clone> InvertibleBloomLookupTable<T> {
 
     pub fn insert(&mut self, x: u32, y: u32) -> Result<(), IBLTError> {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x)?;
+            let hash_value = self.hash(i, x+self.postfix[i as usize] as u32)?;
             self.table[hash_value].count += 1;
             self.table[hash_value].key_sum += x;
             self.table[hash_value].value_sum += y;
@@ -79,7 +85,7 @@ impl<T: Hasher + Default + Clone> InvertibleBloomLookupTable<T> {
 
     pub fn get(&mut self, x: u32) -> Result<u32, IBLTError> {
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x)?;
+            let hash_value = self.hash(i, x+self.postfix[i as usize] as u32)?;
             if self.table[hash_value].count == 0 {
                 return Err(IBLTError::new("Error: Not Found"));
             } else if self.table[hash_value].count == 1 {
@@ -96,7 +102,7 @@ impl<T: Hasher + Default + Clone> InvertibleBloomLookupTable<T> {
     pub fn delete(&mut self, x: u32, y: u32) -> Result<(), IBLTError> {
         let mut matched = false;
         for i in 0..self.area_count {
-            let hash_value = self.hash(i, x)?;
+            let hash_value = self.hash(i, x+self.postfix[i as usize] as u32)?;
             if self.table[hash_value].count == 0 {
                 continue;
             }
